@@ -1,5 +1,5 @@
 langchain
-langchain_groq
+langchain-groq
 gTTS
 pygame
 pocketsphinx
