@@ -53,7 +53,9 @@ def speak(text):
 def listen():
     print("Listening...")
     speech = LiveSpeech(dic='dictionary/en/cmusphinx-en-us-5.2/cmudict-en-us.dict',
-                        hmm='dictionary/en/cmusphinx-en-us-5.2')
+                        hmm='dictionary/en/cmusphinx-en-us-5.2',
+                        kws_threshold=1e-30
+                        )
     for phrase in speech:
         print(f"You said: {phrase}")
         return str(phrase)
