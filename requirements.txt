@@ -1,0 +1,6 @@
+langchain
+gTTS
+pygame
+pocketsphinx
+python-dotenv
+tk
