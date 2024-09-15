@@ -14,6 +14,7 @@ from gtts import gTTS
 import ctypes
 import speech_recognition as sr
 import traceback
+from langdetect import detect, LangDetectException
 
 # Desativando logs do Vosk e ALSA
 def disable_vosk_logs():
@@ -70,6 +71,28 @@ def speak(text, lang='en', speed=1.2):
         print(f"Erro ao gerar ou reproduzir o áudio: {e}")
         traceback.print_exc()
 
+def detect_language(text):
+    try:
+        language = detect(text)
+        if language == 'pt':
+            return 'pt'
+        elif language == 'en':
+            return 'en'
+        else:
+            return 'en' 
+    except LangDetectException:
+        return 'en'
+
+def check_exit_keywords(user_input):
+    exit_keywords_pt = ["sair", "encerrar", "tchau"]
+    exit_keywords_en = ["exit", "quit", "bye"]
+
+    if any(keyword in user_input.lower() for keyword in exit_keywords_pt):
+        return True, 'pt'
+    elif any(keyword in user_input.lower() for keyword in exit_keywords_en):
+        return True, 'en'
+    return False, None
+
 def listen():
     r = sr.Recognizer()
     with sr.Microphone() as source:
@@ -79,49 +102,51 @@ def listen():
         audio = r.listen(source)
 
     try:
-        print("Reconhecendo em português...")
+        print("Reconhecendo...")
         text_pt = r.recognize_google(audio, language='pt-BR')
-        print(f"Você disse (PT): {text_pt}")
-        return text_pt, 'pt'
-    except sr.UnknownValueError:
-        print("Não entendi em português, tentando com o inglês.")
-        try:
+        detected_language = detect_language(text_pt)
+
+        exit_detected, language = check_exit_keywords(text_pt)
+        if exit_detected:
+            return text_pt, language, True
+
+        if detected_language == 'pt':
+            return text_pt, 'pt', False
+        else:
+            print("Trocando para o inglês...")
             text_en = r.recognize_google(audio, language='en-US')
-            print(f"You said (EN): {text_en}")
-            return text_en, 'en'
-        except sr.UnknownValueError:
-            print("Não consegui reconhecer o áudio em nenhum idioma.")
-            return None, None
+
+            exit_detected, language = check_exit_keywords(text_en)
+            if exit_detected:
+                return text_en, language, True
+
+            return text_en, 'en', False
+    except sr.UnknownValueError:
+        print("Não consegui reconhecer o áudio.")
+        return None, None, False
     except sr.RequestError as e:
         print(f"Erro no serviço de reconhecimento de fala: {e}")
-        return None, None
+        return None, None, False
 
 while True:
     print("Aguardando sua fala...")
 
-    user_input, detected_language = listen()
+    user_input, detected_language, exit_detected = listen()
 
     if user_input is None:
         continue
 
-    # Aguarda a tecla "Enter" antes de gerar a resposta
+    if exit_detected:
+        if detected_language == 'pt':
+            print("Bot: Tchau!")
+            speak("Tchau!", lang='pt', speed=1.2)
+        else:
+            print("Bot: Goodbye!")
+            speak("Goodbye!", lang='en', speed=1.2)
+        break
+
     input("Pressione 'Enter' para gerar a resposta...")
 
-    if user_input.lower() == "sair":
-        save_conversation = input("Deseja salvar a conversa? (sim/não): ").strip().lower()
-        if save_conversation == "sim":
-            root = Tk()
-            root.withdraw()
-            file_path = asksaveasfilename(defaultextension=".txt", filetypes=[("Text files", "*.txt")])
-            if file_path:
-                with open(file_path, "w") as file:
-                    file.write("\n".join(conversation_history))
-                print(f"Conversa salva em '{file_path}'.")
-            root.destroy()
-        print("Bot: Tchau!")
-        speak("Tchau!", lang='pt', speed=1.2) 
-        break
-    
     print("Gerando resposta, por favor aguarde...")
 
     try:
