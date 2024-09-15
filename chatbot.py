@@ -16,19 +16,12 @@ import speech_recognition as sr
 import traceback
 from langdetect import detect, LangDetectException
 
-# Desativando logs do Vosk e ALSA
-def disable_vosk_logs():
-    if os.name == "posix":
-        libc = ctypes.CDLL(None)
-        devnull = os.open(os.devnull, os.O_RDWR)
-        libc.dup2(devnull, 2)
-
+# Desativando logs da ALSA
 def disable_alsa_logs():
     if os.name == "posix":
         f = open(os.devnull, 'w')
         os.dup2(f.fileno(), 2)
 
-disable_vosk_logs()
 disable_alsa_logs()
 
 load_dotenv()
@@ -37,9 +30,15 @@ template = """
 You are a virtual assistant. 
 Respond in English or in Brazilian Portuguese depending on the input language.
 
+If the input language is English and the user says a keyword in Portuguese by mistake, correct the sentence by translating the keyword to English.
+
+If the input language is English and a word is incorrect, you must first correct the sentence, returning the corrected sentence.
+
 Input: {input}
+Language: {language}
 """
-base_prompt = PromptTemplate(input_variables=["input"], template=template)
+
+base_prompt = PromptTemplate(input_variables=["input", "language"], template=template)
 
 llm = ChatGroq(model_name="llama3-8b-8192")
 memory = ConversationBufferMemory(memory_key="chatbot_history", input_key='input')
@@ -81,7 +80,7 @@ def detect_language(text):
         else:
             return 'en' 
     except LangDetectException:
-        return 'en'
+        return 'en' 
 
 def check_exit_keywords(user_input):
     exit_keywords_pt = ["sair", "encerrar", "tchau"]
@@ -96,10 +95,10 @@ def check_exit_keywords(user_input):
 def listen():
     r = sr.Recognizer()
     with sr.Microphone() as source:
-        print("Ajustando para ruído de fundo...")
         r.adjust_for_ambient_noise(source)
-        print("Fale agora:")
+        print("Fale agora, após falar pressione 'Enter' para gerar a resposta...")
         audio = r.listen(source)
+        input()
 
     try:
         print("Reconhecendo...")
@@ -127,9 +126,13 @@ def listen():
     except sr.RequestError as e:
         print(f"Erro no serviço de reconhecimento de fala: {e}")
         return None, None, False
+    
+print("Olá, sou seu assistente virtual e estou aqui para lhe ajudar.")
+print("Eu posso responder em Português e Inglês.")
+print("Pressione 'Enter' para começar a falar...")
+input()
 
 while True:
-    print("Aguardando sua fala...")
 
     user_input, detected_language, exit_detected = listen()
 
@@ -145,15 +148,12 @@ while True:
             speak("Goodbye!", lang='en', speed=1.2)
         break
 
-    input("Pressione 'Enter' para gerar a resposta...")
-
-    print("Gerando resposta, por favor aguarde...")
-
     try:
-        response = llm_chain.invoke({'input': user_input})
-        bot_response = response['text']
-
+        print(f"You: {user_input}")
+        print("Gerando resposta, por favor aguarde...")
         conversation_history.append(f"You: {user_input}")
+        response = llm_chain.invoke({'input': user_input, 'language': detected_language})
+        bot_response = response['text']
         conversation_history.append(f"Bot: {bot_response}")
         
         speak(bot_response, lang=detected_language, speed=1.2)
