@@ -9,12 +9,13 @@ import logging
 from dotenv import load_dotenv
 from tkinter import Tk
 from tkinter.filedialog import asksaveasfilename
-from vosk import Model, KaldiRecognizer
 import pyaudio
 from gtts import gTTS
 import ctypes
-from langdetect import detect, LangDetectException 
+import speech_recognition as sr
+import traceback
 
+# Desativando logs do Vosk e ALSA
 def disable_vosk_logs():
     if os.name == "posix":
         libc = ctypes.CDLL(None)
@@ -52,68 +53,59 @@ stream = mic.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, fr
 stream.start_stream()
 
 def speak(text, lang='en', speed=1.2):
-    if lang == 'pt':
-        lang = 'pt-br'
-    
-    tts = gTTS(text, lang=lang)
-    tts.save("response.mp3")
-    
-    audio = AudioSegment.from_mp3("response.mp3")
-    fast_audio = audio.speedup(playback_speed=speed)
-
-    play(fast_audio)
-    
-    os.remove("response.mp3")
-
-def listen(model_pt, model_en):
-    print("Pressione 'Enter' para iniciar a gravação...")
-    input() 
-    print("Fale agora. Quando terminar, pressione 'Enter' novamente.")
-    
-    recognizer_pt = KaldiRecognizer(model_pt, 16000)
-    recognizer_en = KaldiRecognizer(model_en, 16000)
-    
-    while True:
-        data = stream.read(4096)
-        if recognizer_pt.AcceptWaveform(data):
-            result = recognizer_pt.Result()
-            text = result.split('"text" : ')[-1].strip('"}\n')
-            if text != "<UNK>":
-                print(f"You said (PT): {text}")
-                input("Pressione 'Enter' para confirmar...") 
-                return text, 'pt'
-        
-        # Se falhar, tenta com o modelo de inglês
-        elif recognizer_en.AcceptWaveform(data):
-            result = recognizer_en.Result()
-            text = result.split('"text" : ')[-1].strip('"}\n')
-            if text != "<UNK>":
-                print(f"You said (EN): {text}")
-                input("Press 'Enter' to confirm...") 
-                return text, 'en'
-
-def detect_language(text):
     try:
-        language = detect(text)
-        if language == 'pt':
-            return 'pt'
-        elif language == 'en':
-            return 'en'
-        else:
-            return 'en'  
-    except LangDetectException:
-        return 'en'
+        if lang == 'pt':
+            lang = 'pt-br'
+        
+        tts = gTTS(text, lang=lang)
+        tts.save("response.mp3")
+        
+        mp3_audio = AudioSegment.from_mp3("response.mp3")
+        fast_audio = mp3_audio.speedup(playback_speed=speed)
 
-model_pt = Model("dictionary/pt-br/vosk-model-small-pt-0.3")
-model_en = Model("dictionary/en/vosk-model-small-en-us-0.15")
+        play(fast_audio)
+
+        os.remove("response.mp3")
+    except Exception as e:
+        print(f"Erro ao gerar ou reproduzir o áudio: {e}")
+        traceback.print_exc()
+
+def listen():
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        print("Ajustando para ruído de fundo...")
+        r.adjust_for_ambient_noise(source)
+        print("Fale agora:")
+        audio = r.listen(source)
+
+    try:
+        print("Reconhecendo em português...")
+        text_pt = r.recognize_google(audio, language='pt-BR')
+        print(f"Você disse (PT): {text_pt}")
+        return text_pt, 'pt'
+    except sr.UnknownValueError:
+        print("Não entendi em português, tentando com o inglês.")
+        try:
+            text_en = r.recognize_google(audio, language='en-US')
+            print(f"You said (EN): {text_en}")
+            return text_en, 'en'
+        except sr.UnknownValueError:
+            print("Não consegui reconhecer o áudio em nenhum idioma.")
+            return None, None
+    except sr.RequestError as e:
+        print(f"Erro no serviço de reconhecimento de fala: {e}")
+        return None, None
 
 while True:
     print("Aguardando sua fala...")
 
-    user_input, detected_language = listen(model_pt, model_en)
+    user_input, detected_language = listen()
 
     if user_input is None:
         continue
+
+    # Aguarda a tecla "Enter" antes de gerar a resposta
+    input("Pressione 'Enter' para gerar a resposta...")
 
     if user_input.lower() == "sair":
         save_conversation = input("Deseja salvar a conversa? (sim/não): ").strip().lower()
@@ -132,11 +124,15 @@ while True:
     
     print("Gerando resposta, por favor aguarde...")
 
-    response = llm_chain.invoke({'input': user_input})
-    bot_response = response['text']
+    try:
+        response = llm_chain.invoke({'input': user_input})
+        bot_response = response['text']
 
-    conversation_history.append(f"You: {user_input}")
-    conversation_history.append(f"Bot: {bot_response}")
-    
-    speak(bot_response, lang=detected_language, speed=1.2)
-    print(f"Bot: {bot_response}")
+        conversation_history.append(f"You: {user_input}")
+        conversation_history.append(f"Bot: {bot_response}")
+        
+        speak(bot_response, lang=detected_language, speed=1.2)
+        print(f"Bot: {bot_response}")
+    except Exception as e:
+        print(f"Ocorreu um erro ao gerar a resposta: {e}")
+        traceback.print_exc()
